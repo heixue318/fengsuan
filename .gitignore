@@ -3,6 +3,10 @@ build/
 */build/
 dist/
 local.properties
+signing/
+*.jks
+*.keystore
+keystore.properties
 
 *.apk
 *.aab

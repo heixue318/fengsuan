@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
     private final List<String> redoStack = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
     private SharedPreferences prefs;
-    private final DecimalFormat df = new DecimalFormat("0.############");
+    private final DecimalFormat df = new DecimalFormat("0.############", java.text.DecimalFormatSymbols.getInstance(Locale.US));
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("fengsuan", MODE_PRIVATE);
         loadHistory();
         draftText = prefs.getString("draft", "");
+        lastCalculationResult = prefs.getString("lastCalculationResult", "");
         layoutMode = prefs.getInt("layoutMode", 0);
         soundMode = prefs.contains("soundMode")
                 ? prefs.getInt("soundMode", 1)
@@ -137,6 +138,7 @@ public class MainActivity extends Activity {
         captureDraft();
         prefs.edit()
                 .putString("draft", draftText)
+                .putString("lastCalculationResult", lastCalculationResult)
                 .putInt("layoutMode", layoutMode)
                 .putInt("soundMode", soundMode)
                 .apply();
@@ -152,6 +154,7 @@ public class MainActivity extends Activity {
     }
 
     private void showCalculator() {
+        int cursor = editor == null ? -1 : editor.getSelectionStart();
         captureDraft();
         content.removeAllViews();
         LinearLayout card = new LinearLayout(this);
@@ -173,7 +176,7 @@ public class MainActivity extends Activity {
         editor.setShowSoftInputOnFocus(false);
         applyEditorTextSizing();
         editor.setText(draftText);
-        editor.setSelection(editor.getText().length());
+        editor.setSelection(cursor < 0 ? editor.getText().length() : Math.min(cursor, editor.getText().length()));
         ScaleGestureDetector scaleDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
             public boolean onScale(ScaleGestureDetector detector) {
@@ -202,7 +205,7 @@ public class MainActivity extends Activity {
         addPaperFloatingButtons(paperWrap);
         card.addView(paperWrap, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        preview = label("结果会显示在这里", 17, GOLD, true);
+        preview = label("结果会显示在这里", 17, Color.rgb(193, 197, 201), false);
         preview.setGravity(Gravity.RIGHT);
         preview.setPadding(dp(10), dp(3), dp(10), dp(2));
         if (!paperExpanded) card.addView(preview, new LinearLayout.LayoutParams(-1, dp(30)));
@@ -326,8 +329,12 @@ public class MainActivity extends Activity {
     }
 
     private String[][] keyboardRows() {
+        return keyboardRows(layoutMode);
+    }
+
+    private String[][] keyboardRows(int mode) {
         String sound = soundLabel();
-        switch (layoutMode) {
+        switch (mode) {
             case 1:
                 return new String[][]{
                         {"布局", "◀", "▶", "↵", "AC"},
@@ -395,7 +402,7 @@ public class MainActivity extends Activity {
 
     private View key(String s) {
         if (isSoundKey(s)) return soundKey(s);
-        if (isIconKey(s)) return iconKey(s);
+        if (!"文".equals(s)) return iconKey(s);
 
         Button b = new Button(this);
         String shown = displayKey(s);
@@ -482,6 +489,7 @@ public class MainActivity extends Activity {
     }
 
     private void press(String s) {
+        if (!"AC".equals(s)) lastAcTap = 0;
         if (editor == null) return;
         if ("声音".equals(s) || "机械".equals(s) || "女声".equals(s) || "静音".equals(s)) {
             cycleSoundMode();
@@ -497,9 +505,11 @@ public class MainActivity extends Activity {
                 break;
             case "⌫":
                 int pos = Math.max(0, editor.getSelectionStart());
-                if (pos > 0) {
+                int selectionEnd = Math.max(pos, editor.getSelectionEnd());
+                if (selectionEnd > pos || pos > 0) {
                     pushUndo();
-                    editor.getText().delete(pos - 1, pos);
+                    int from = selectionEnd > pos ? pos : editor.getText().toString().offsetByCodePoints(pos, -1);
+                    editor.getText().delete(from, selectionEnd);
                     captureDraft();
                 }
                 break;
@@ -557,14 +567,14 @@ public class MainActivity extends Activity {
                 insert("^");
                 break;
             case "√":
-                insert("sqrt(");
+                insertFunction("√");
                 break;
             case "sin":
             case "cos":
             case "tan":
             case "lg":
             case "ln":
-                insert(s + "(");
+                insertFunction(s);
                 break;
             case "π":
                 insert("π");
@@ -614,14 +624,21 @@ public class MainActivity extends Activity {
 
     private String lastAnswerForCarry() {
         if (lastCalculationResult != null && !lastCalculationResult.isEmpty()) return lastCalculationResult;
-        return lastAnswer();
+        return "";
     }
 
     private void insert(String s) {
         pushUndo();
         int pos = Math.max(0, editor.getSelectionStart());
-        editor.getText().insert(pos, s);
+        int end = Math.max(pos, editor.getSelectionEnd());
+        editor.getText().replace(pos, end, s);
+        editor.setSelection(pos + s.length());
         captureDraft();
+    }
+
+    private void insertFunction(String name) {
+        insert(name + "()");
+        moveCursor(-1);
     }
 
     private void moveCursor(int delta) {
@@ -644,6 +661,7 @@ public class MainActivity extends Activity {
         editor.setText(text);
         editor.setSelection(editor.getText().length());
         captureDraft();
+        restoreDraftAnswer();
     }
 
     private void redo() {
@@ -653,6 +671,20 @@ public class MainActivity extends Activity {
         editor.setText(text);
         editor.setSelection(editor.getText().length());
         captureDraft();
+        restoreDraftAnswer();
+    }
+
+    private void restoreDraftAnswer() {
+        lastCalculationResult = "";
+        String[] lines = draftText.split("\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            int equals = lines[i].lastIndexOf('=');
+            if (equals < 0) continue;
+            try {
+                lastCalculationResult = formatResult(Double.parseDouble(lines[i].substring(equals + 1).trim()));
+                return;
+            } catch (RuntimeException ignored) { }
+        }
     }
 
     private void cycleSoundMode() {
@@ -779,17 +811,20 @@ public class MainActivity extends Activity {
 
     private void calculateAndAppend() {
         String line = currentLine().trim();
+        if (line.isEmpty()) return;
+        int equals = line.indexOf('=');
+        if (equals >= 0) line = line.substring(0, equals).trim();
         try {
             double value = evaluate(line);
-            String result = df.format(value);
+            String result = formatResult(value);
             preview.setText(result);
             replaceCurrentLine(line + "=" + result + "\n");
             lastCalculationResult = result;
             addHistory(line + " = " + result);
             announceResult(result);
         } catch (Exception ex) {
-            preview.setText("算式还没看懂");
-            Toast.makeText(this, "请检查括号、运算符或函数写法", Toast.LENGTH_SHORT).show();
+            preview.setText("无法计算");
+            Toast.makeText(this, "请检查算式、括号和函数参数，除数不能为零", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -812,7 +847,7 @@ public class MainActivity extends Activity {
     private String currentLine() {
         String text = editor.getText().toString();
         int pos = Math.max(0, editor.getSelectionStart());
-        int start = text.lastIndexOf('\n', Math.max(0, pos - 1));
+        int start = text.lastIndexOf('\n', pos - 1);
         int end = text.indexOf('\n', pos);
         if (end < 0) end = text.length();
         return text.substring(start + 1, end).replaceFirst("^=\\s*", "");
@@ -822,9 +857,10 @@ public class MainActivity extends Activity {
         pushUndo();
         String text = editor.getText().toString();
         int pos = Math.max(0, editor.getSelectionStart());
-        int start = text.lastIndexOf('\n', Math.max(0, pos - 1));
+        int start = text.lastIndexOf('\n', pos - 1);
         int end = text.indexOf('\n', pos);
         if (end < 0) end = text.length();
+        if (end < text.length() && replacement.endsWith("\n")) end++;
         editor.getText().replace(start + 1, end, replacement);
         int next = start + 1 + replacement.length();
         editor.setSelection(Math.max(0, Math.min(editor.getText().length(), next)));
@@ -832,13 +868,23 @@ public class MainActivity extends Activity {
     }
 
     private double evaluate(String input) {
+        int equals = input.indexOf('=');
+        if (equals >= 0) input = input.substring(0, equals);
         String expr = input
                 .replace("×", "*")
                 .replace("÷", "/")
                 .replace("π", "pi")
                 .replace("％", "%");
-        expr = expr.replaceAll("[^0-9+\\-*/().%^,!a-zA-Z\\u03c0]", "");
+        expr = expr.replaceAll("[^0-9+\\-*/().%^,!a-zA-Z\\u03c0√]", "");
         return new Parser(expr).parse();
+    }
+
+    private String formatResult(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) throw new IllegalArgumentException("结果超出范围");
+        if (value != 0 && (Math.abs(value) < 1e-12 || Math.abs(value) >= 1e15)) {
+            return new DecimalFormat("0.############E0", java.text.DecimalFormatSymbols.getInstance(Locale.US)).format(value);
+        }
+        return df.format(value == 0 ? 0 : value);
     }
 
     private void showTextInsertDialog() {
@@ -891,9 +937,14 @@ public class MainActivity extends Activity {
                     if (which == 0) {
                         Toast.makeText(this, "结果求和：" + df.format(sumHistory()), Toast.LENGTH_LONG).show();
                     } else if (which == 1) {
-                        history.clear();
-                        persistHistory();
-                        Toast.makeText(this, "历史已清空", Toast.LENGTH_SHORT).show();
+                        new AlertDialog.Builder(this).setTitle("清空历史记录？")
+                                .setMessage("清空后无法恢复，当前草稿不会删除。")
+                                .setNegativeButton("取消", null)
+                                .setPositiveButton("清空", (confirmation, button) -> {
+                                    history.clear();
+                                    persistHistory();
+                                    toast("历史已清空");
+                                }).show();
                     } else {
                         copyText(items.get(which));
                     }
@@ -902,8 +953,9 @@ public class MainActivity extends Activity {
     }
 
     private String currentValueText() {
+        if (currentLine().trim().isEmpty()) return lastCalculationResult;
         try {
-            return df.format(evaluate(currentLine()));
+            return formatResult(evaluate(currentLine()));
         } catch (Exception e) {
             String text = preview == null ? "" : preview.getText().toString();
             return text == null || text.trim().isEmpty() ? currentLine() : text;
@@ -926,7 +978,7 @@ public class MainActivity extends Activity {
                     String item = items[which];
                     if ("ANS".equals(item)) insert(lastAnswer());
                     else if ("人民币大写".equals(item)) press("大写");
-                    else insert(item);
+                    else insertFunction(item.substring(0, item.length() - 1));
                 })
                 .show();
     }
@@ -1017,7 +1069,7 @@ public class MainActivity extends Activity {
                 .setTitle("工具箱")
                 .setItems(items, (dialog, which) -> {
                     if (which == 0) showNumberToolDialog("人民币大写", "输入金额，例如 523458.26", value -> rmb(value));
-                    if (which == 1) showNumberToolDialog("汇率估算", "输入人民币金额，例如 1000", value ->
+                    if (which == 1) showNumberToolDialog("离线汇率估算（非实时）", "固定参考汇率，仅作估算；输入人民币金额", value ->
                             "USD $" + df.format(value / 7.25) + "\n" +
                             "EUR €" + df.format(value / 7.85) + "\n" +
                             "RUB ₽" + df.format(value * 11.1) + "\n" +
@@ -1058,6 +1110,7 @@ public class MainActivity extends Activity {
             ok.setOnClickListener(v -> {
                 try {
                     double value = Double.parseDouble(input.getText().toString());
+                    if (Double.isNaN(value) || Double.isInfinite(value)) throw new IllegalArgumentException();
                     new AlertDialog.Builder(this)
                             .setTitle(title)
                             .setMessage(formatter.format(value))
@@ -1077,6 +1130,8 @@ public class MainActivity extends Activity {
 
     private void showIntegerToolDialog() {
         showNumberToolDialog("进制转换", "输入十进制整数，例如 255", value -> {
+            if (value != Math.rint(value) || Math.abs(value) > 9007199254740991d)
+                throw new IllegalArgumentException("请输入安全范围内的整数");
             BigInteger n = BigInteger.valueOf((long) value);
             return "BIN " + n.toString(2) + "\nOCT " + n.toString(8) + "\nHEX " + n.toString(16).toUpperCase(Locale.ROOT);
         });
@@ -1118,7 +1173,7 @@ public class MainActivity extends Activity {
     private void showAboutDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("风算")
-                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.11")
+                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.20")
                 .setPositiveButton("知道了", null)
                 .show();
     }
@@ -1126,7 +1181,7 @@ public class MainActivity extends Activity {
     private void showHelpDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("风算使用提示")
-                .setMessage("主计算区不会主动弹出系统输入法。\n\n点左上角布局图标可切换 6 种键盘；点“文”插入文字备注；点“=”计算当前行。\n\n复制、粘贴、撤销、重做等入口现在使用图标显示。双击稿纸区可切换全屏高度，双指缩放可调整文字大小。")
+                .setMessage("点“文”输入备注；点“=”计算当前行，结果后自动换行。新行按运算符接着上次结果计算，按数字开始新算式。\n\n遵循先乘除后加减；sin、cos、tan 使用角度。200+10%=220，200×10%=20。\n\n连续两次 AC 清屏，中间操作其他键会取消确认。左上角切换 6 种布局；双击稿纸全屏，双指缩放文字。")
                 .setPositiveButton("知道了", null)
                 .show();
     }
@@ -1549,24 +1604,25 @@ public class MainActivity extends Activity {
     }
 
     private int keyFill(String key) {
-        if ("AC".equals(key)) return Color.rgb(221, 49, 55);
-        if ("⌫".equals(key)) return Color.rgb(255, 145, 56);
-        if (isLightKey(key)) return Color.rgb(241, 241, 239);
+        if ("AC".equals(key)) return Color.rgb(194, 37, 49);
+        if ("⌫".equals(key)) return Color.rgb(173, 100, 30);
+        if ("=".equals(key)) return Color.rgb(255, 139, 19);
+        if (isLightKey(key)) return Color.rgb(220, 223, 226);
         if ("帮助".equals(key) || "函数".equals(key) || "常量".equals(key) ||
                 "常用".equals(key) || isSoundKey(key)) {
-            return Color.rgb(81, 83, 82);
+            return Color.rgb(49, 53, 57);
         }
-        return Color.rgb(126, 128, 126);
+        return Color.rgb(49, 53, 57);
     }
 
     private int keyTextColor(String key) {
-        if ("=".equals(key)) return Color.rgb(185, 0, 12);
+        if ("=".equals(key)) return Color.WHITE;
         if ("AC".equals(key) || "⌫".equals(key)) return Color.WHITE;
         return isLightKey(key) ? Color.rgb(42, 43, 44) : Color.WHITE;
     }
 
     private boolean isLightKey(String key) {
-        return key.matches("[0-9.]") || "=".equals(key) || "文".equals(key);
+        return key.matches("[0-9.]") || "文".equals(key);
     }
 
     private int adjustColor(int color, int amount) {
@@ -1603,17 +1659,17 @@ public class MainActivity extends Activity {
 
         RectF key = new RectF(bounds.left + dp(0.9f), bounds.top + dp(0.4f) + lift,
                 bounds.right - dp(0.9f), bounds.bottom - dp(2.7f) + lift);
-        int top = adjustColor(baseColor, light ? 18 : 15);
+        int top = adjustColor(baseColor, light ? 16 : 10);
         int mid = baseColor;
-        int bottom = adjustColor(baseColor, light ? -16 : -24);
+        int bottom = adjustColor(baseColor, -9);
         if (orange) {
-            top = Color.rgb(255, 160, 72);
-            mid = Color.rgb(255, 145, 56);
-            bottom = Color.rgb(231, 112, 24);
+            top = Color.rgb(255, 159, 37);
+            mid = baseColor;
+            bottom = Color.rgb(245, 119, 12);
         } else if (red) {
-            top = Color.rgb(232, 64, 70);
-            mid = Color.rgb(221, 49, 55);
-            bottom = Color.rgb(194, 36, 43);
+            top = adjustColor(baseColor, 12);
+            mid = baseColor;
+            bottom = adjustColor(baseColor, -12);
         }
         p.setShader(new LinearGradient(0, key.top, 0, key.bottom,
                 new int[]{top, mid, bottom},
@@ -1623,14 +1679,12 @@ public class MainActivity extends Activity {
         p.setShader(null);
 
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(dp(1.1f));
-        p.setColor(light ? Color.rgb(224, 224, 222) :
-                (orange ? Color.rgb(255, 169, 83) :
-                        (red ? Color.rgb(232, 70, 76) : Color.rgb(135, 137, 136))));
+        p.setStrokeWidth(dp(0.65f));
+        p.setColor(adjustColor(baseColor, light ? 22 : 25));
         canvas.drawRoundRect(key, radius, radius, p);
 
-        p.setStrokeWidth(dp(1));
-        p.setColor(light ? Color.argb(160, 255, 255, 255) : Color.argb(84, 255, 255, 255));
+        p.setStrokeWidth(dp(0.6f));
+        p.setColor(light ? Color.argb(130, 255, 255, 255) : Color.argb(48, 255, 255, 255));
         canvas.drawLine(key.left + radius, key.top + dp(1.5f),
                 key.right - radius, key.top + dp(1.5f), p);
 
@@ -1707,16 +1761,16 @@ public class MainActivity extends Activity {
             p.setColor(Color.argb(125, 0, 0, 0));
             canvas.drawRoundRect(new RectF(b.left + dp(2), b.top + dp(4), b.right - dp(1), b.bottom + dp(3)), r, r, p);
             p.setShader(new LinearGradient(0, b.top, 0, b.bottom,
-                    new int[]{Color.rgb(252, 252, 250), Color.rgb(232, 232, 229), Color.rgb(246, 246, 244)},
+                    new int[]{Color.rgb(43, 47, 50), Color.rgb(30, 33, 36), Color.rgb(37, 40, 43)},
                     new float[]{0f, 0.58f, 1f}, Shader.TileMode.CLAMP));
             canvas.drawRoundRect(b, r, r, p);
             p.setShader(null);
             p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(dp(2));
-            p.setColor(Color.rgb(178, 180, 178));
+            p.setStrokeWidth(dp(0.6f));
+            p.setColor(Color.rgb(64, 68, 72));
             canvas.drawRoundRect(new RectF(b.left + dp(2), b.top + dp(2), b.right - dp(2), b.bottom - dp(2)), r - dp(2), r - dp(2), p);
             p.setStrokeWidth(dp(1));
-            p.setColor(Color.argb(180, 255, 255, 255));
+            p.setColor(Color.TRANSPARENT);
             canvas.drawRoundRect(new RectF(b.left + dp(6), b.top + dp(5), b.right - dp(6), b.bottom - dp(8)), r - dp(6), r - dp(6), p);
         }
 
@@ -1747,13 +1801,13 @@ public class MainActivity extends Activity {
             p.setColor(Color.argb(90, 0, 0, 0));
             canvas.drawRoundRect(new RectF(b.left + dp(1), b.top + dp(3), b.right - dp(1), b.bottom + dp(4)), r, r, p);
             p.setShader(new LinearGradient(0, b.top, 0, b.bottom,
-                    new int[]{Color.rgb(255, 255, 254), Color.rgb(236, 236, 233), Color.rgb(249, 249, 247)},
+                    new int[]{Color.rgb(47, 51, 54), Color.rgb(43, 47, 50), Color.rgb(39, 43, 46)},
                     new float[]{0f, 0.70f, 1f}, Shader.TileMode.CLAMP));
             canvas.drawRoundRect(b, r, r, p);
             p.setShader(null);
             p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(dp(1.2f));
-            p.setColor(Color.rgb(180, 181, 178));
+            p.setStrokeWidth(dp(0.6f));
+            p.setColor(Color.rgb(69, 73, 77));
             canvas.drawRoundRect(new RectF(b.left + dp(2), b.top + dp(2), b.right - dp(2), b.bottom - dp(2)),
                     r - dp(2), r - dp(2), p);
         }
@@ -1799,30 +1853,85 @@ public class MainActivity extends Activity {
             super.onDraw(canvas);
             int base = keyFill(key);
             drawKeyCap(canvas, new RectF(0, 0, getWidth(), getHeight()), base, dp(6), isPressed());
+            if (isIconKey(key) || "√".equals(key) || "xʸ".equals(key)) {
+                drawCommandIcon(canvas);
+                return;
+            }
             icon.clearShadowLayer();
             icon.setStyle(Paint.Style.FILL);
             icon.setColor(keyTextColor(key));
             icon.setTextAlign(Paint.Align.CENTER);
-            icon.setTypeface(Typeface.DEFAULT_BOLD);
-            icon.setTextSize(dp(iconTextSize(key)));
+            icon.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+            String text = displayKey(key);
+            icon.setTextSize(dp(keyTextSize(key, text)));
+            Paint.FontMetrics initial = icon.getFontMetrics();
+            float scale = Math.min(1f, Math.min((getWidth() - dp(12)) / Math.max(1, icon.measureText(text)),
+                    (getHeight() - dp(10)) / (initial.descent - initial.ascent)));
+            icon.setTextSize(icon.getTextSize() * Math.max(0.1f, scale));
             Paint.FontMetrics fm = icon.getFontMetrics();
             float y = getHeight() * 0.48f - (fm.ascent + fm.descent) / 2f;
-            canvas.drawText(iconText(key), getWidth() / 2f, y, icon);
+            canvas.drawText(text, getWidth() / 2f, y + (isPressed() ? dp(1) : 0), icon);
         }
 
-        private String iconText(String key) {
-            if ("布局".equals(key)) return "▣";
-            if ("复".equals(key)) return "复制";
-            if ("贴".equals(key)) return "粘贴";
-            if ("↵".equals(key)) return "↵";
-            return key;
-        }
-
-        private int iconTextSize(String key) {
-            if ("复".equals(key) || "贴".equals(key)) return 18;
-            if ("布局".equals(key)) return 28;
-            if ("↵".equals(key)) return 34;
-            return 30;
+        private void drawCommandIcon(Canvas canvas) {
+            float size = Math.min(dp(29), Math.min(getWidth() * 0.53f, getHeight() * 0.60f));
+            canvas.save();
+            canvas.translate((getWidth() - size) / 2f, getHeight() * 0.48f - size / 2f + (isPressed() ? dp(1) : 0));
+            canvas.scale(size / 32f, size / 32f);
+            icon.reset();
+            icon.setAntiAlias(true);
+            icon.setColor(keyTextColor(key));
+            icon.setStyle(Paint.Style.STROKE);
+            icon.setStrokeWidth(2.3f);
+            icon.setStrokeCap(Paint.Cap.ROUND);
+            icon.setStrokeJoin(Paint.Join.ROUND);
+            Path path = new Path();
+            switch (key) {
+                case "布局":
+                    canvas.drawRoundRect(new RectF(9, 5, 28, 23), 3, 3, icon);
+                    icon.setStyle(Paint.Style.FILL);
+                    icon.setColor(keyFill(key));
+                    canvas.drawRoundRect(new RectF(4, 10, 23, 28), 3, 3, icon);
+                    icon.setStyle(Paint.Style.STROKE);
+                    icon.setColor(keyTextColor(key));
+                    canvas.drawRoundRect(new RectF(4, 10, 23, 28), 3, 3, icon);
+                    break;
+                case "◀": case "▶":
+                    if ("▶".equals(key)) { canvas.translate(32, 0); canvas.scale(-1, 1); }
+                    path.moveTo(8, 16); path.lineTo(23, 6); path.lineTo(23, 26); path.close();
+                    icon.setStyle(Paint.Style.FILL); canvas.drawPath(path, icon); break;
+                case "↵":
+                    path.moveTo(27, 6); path.lineTo(27, 17); path.quadTo(27, 22, 22, 22);
+                    path.lineTo(5, 22); path.moveTo(12, 15); path.lineTo(5, 22); path.lineTo(12, 29);
+                    canvas.drawPath(path, icon); break;
+                case "↶": case "↷":
+                    if ("↷".equals(key)) { canvas.translate(32, 0); canvas.scale(-1, 1); }
+                    path.moveTo(26, 25); path.cubicTo(29, 8, 9, 5, 6, 20);
+                    path.moveTo(3, 14); path.lineTo(6, 21); path.lineTo(12, 16);
+                    canvas.drawPath(path, icon); break;
+                case "复":
+                    canvas.drawRoundRect(new RectF(5, 4, 22, 24), 2, 2, icon);
+                    canvas.drawRoundRect(new RectF(11, 9, 28, 29), 2, 2, icon); break;
+                case "贴":
+                    canvas.drawRoundRect(new RectF(7, 7, 25, 29), 3, 3, icon);
+                    canvas.drawRoundRect(new RectF(11, 3, 21, 10), 2, 2, icon);
+                    canvas.drawLine(12, 16, 20, 16, icon); canvas.drawLine(12, 22, 20, 22, icon); break;
+                case "⌫":
+                    path.moveTo(12, 7); path.lineTo(29, 7); path.lineTo(29, 25);
+                    path.lineTo(12, 25); path.lineTo(3, 16); path.close(); canvas.drawPath(path, icon);
+                    canvas.drawLine(16, 12, 24, 20, icon); canvas.drawLine(24, 12, 16, 20, icon); break;
+                case "√":
+                    path.moveTo(7, 19); path.lineTo(11, 17); path.lineTo(15, 26);
+                    path.lineTo(21, 6); path.lineTo(31, 6); canvas.drawPath(path, icon);
+                    icon.setStyle(Paint.Style.FILL); icon.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+                    icon.setTextSize(12); canvas.drawText("y", 0, 12, icon);
+                    icon.setTextSize(20); canvas.drawText("x", 22, 27, icon); break;
+                case "xʸ":
+                    icon.setStyle(Paint.Style.FILL); icon.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+                    icon.setTextSize(27); canvas.drawText("x", 4, 28, icon);
+                    icon.setTextSize(15); canvas.drawText("y", 21, 12, icon); break;
+            }
+            canvas.restore();
         }
     }
 
@@ -1852,24 +1961,16 @@ public class MainActivity extends Activity {
                 canvas.drawLine(dp(7), y, w - dp(7), y, p);
             }
 
-            int rows;
-            int cols = mode == 5 ? 4 : 5;
-            if (mode == 0) rows = 8;
-            else if (mode == 1 || mode == 2) rows = 7;
-            else if (mode == 3) rows = 6;
-            else rows = 5;
+            String[][] keys = keyboardRows(mode);
+            int rows = keys.length;
+            int cols = keys[0].length;
             float gap = dp(2);
             float top = h * 0.45f;
             float cellW = (w - gap * (cols + 1)) / cols;
             float cellH = (h - top - gap * (rows + 1)) / rows;
             for (int r = 0; r < rows; r++) {
                 for (int c = 0; c < cols; c++) {
-                    boolean number = r >= Math.max(1, rows - 4) && c < Math.min(3, cols);
-                    boolean danger = r == 0 && c == cols - 1;
-                    boolean warn = (mode == 4 || mode == 5) && r == 0 && c == cols - 2;
-                    p.setColor(danger ? Color.rgb(220, 47, 55) :
-                            (warn ? Color.rgb(255, 146, 57) :
-                                    (number ? Color.rgb(241, 241, 239) : Color.rgb(126, 128, 126))));
+                    p.setColor(keyFill(keys[r][c]));
                     float x = gap + c * (cellW + gap);
                     float y = top + gap + r * (cellH + gap);
                     canvas.drawRoundRect(new RectF(x, y, x + cellW, y + cellH), dp(2), dp(2), p);
@@ -1895,7 +1996,7 @@ public class MainActivity extends Activity {
             setClickable(true);
             setFocusable(true);
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-            setContentDescription("声音");
+            setContentDescription("声音：" + state);
         }
 
         @Override
@@ -1909,9 +2010,9 @@ public class MainActivity extends Activity {
             super.onDraw(canvas);
             int base = keyFill(state);
             drawKeyCap(canvas, new RectF(0, 0, getWidth(), getHeight()), base, dp(6), isPressed());
-            float size = Math.min(getWidth(), getHeight()) * 0.58f;
+            float size = Math.min(dp(30), Math.min(getWidth(), getHeight()) * ("静音".equals(state) ? 0.49f : 0.58f));
             float cx = getWidth() / 2f;
-            float cy = getHeight() * 0.47f;
+            float cy = getHeight() * 0.48f + (isPressed() ? dp(1) : 0);
             RectF box = new RectF(cx - size * 0.5f, cy - size * 0.46f,
                     cx + size * 0.5f, cy + size * 0.46f);
             if ("女声".equals(state) && femaleVoiceBitmap != null) {
@@ -1944,6 +2045,26 @@ public class MainActivity extends Activity {
         }
 
         private void drawSpeakerIcon(Canvas canvas, RectF box, boolean muted) {
+            if (muted) {
+                canvas.save();
+                canvas.translate(box.left, box.top);
+                canvas.scale(box.width() / 32, box.height() / 32);
+                iconPaint.reset();
+                iconPaint.setAntiAlias(true);
+                iconPaint.setColor(Color.WHITE);
+                iconPaint.setStyle(Paint.Style.STROKE);
+                iconPaint.setStrokeWidth(2.3f);
+                iconPaint.setStrokeCap(Paint.Cap.ROUND);
+                iconPaint.setStrokeJoin(Paint.Join.ROUND);
+                Path outline = new Path();
+                outline.moveTo(5, 22); outline.lineTo(5, 12); outline.lineTo(11, 12);
+                outline.lineTo(21, 4); outline.lineTo(21, 10);
+                outline.moveTo(13, 23); outline.lineTo(21, 29); outline.lineTo(21, 21);
+                canvas.drawPath(outline, iconPaint);
+                canvas.drawLine(4, 28, 28, 4, iconPaint);
+                canvas.restore();
+                return;
+            }
             int color = keyTextColor(state);
             iconPaint.reset();
             iconPaint.setAntiAlias(true);
@@ -2003,7 +2124,7 @@ public class MainActivity extends Activity {
             float radius = dp(10);
             RectF b = new RectF(getBounds());
             fill.setShader(new LinearGradient(0, b.top, 0, b.bottom,
-                    new int[]{Color.rgb(249, 249, 248), Color.rgb(235, 235, 233), Color.rgb(247, 247, 246)},
+                    new int[]{Color.rgb(249, 250, 251), Color.rgb(245, 246, 247), Color.rgb(249, 250, 251)},
                     new float[]{0f, 0.58f, 1f}, Shader.TileMode.CLAMP));
             canvas.drawRoundRect(b, radius, radius, fill);
             fill.setShader(null);
@@ -2011,11 +2132,11 @@ public class MainActivity extends Activity {
             Paint inner = new Paint(Paint.ANTI_ALIAS_FLAG);
             inner.setStyle(Paint.Style.STROKE);
             inner.setStrokeWidth(dp(2));
-            inner.setColor(Color.argb(70, 0, 0, 0));
+            inner.setColor(Color.TRANSPARENT);
             canvas.drawRoundRect(b.left + dp(3), b.top + dp(3), b.right - dp(3), b.bottom - dp(3),
                     radius - dp(3), radius - dp(3), inner);
             inner.setStrokeWidth(dp(1));
-            inner.setColor(Color.argb(145, 255, 255, 255));
+            inner.setColor(Color.TRANSPARENT);
             canvas.drawRoundRect(b.left + dp(5), b.top + dp(4), b.right - dp(5), b.bottom - dp(6),
                     radius - dp(5), radius - dp(5), inner);
             float rowHeight = editorLineHeightPx();
@@ -2060,6 +2181,7 @@ public class MainActivity extends Activity {
             next();
             double x = expression();
             if (pos < s.length()) throw new RuntimeException("unexpected");
+            if (Double.isNaN(x) || Double.isInfinite(x)) throw new ArithmeticException("invalid result");
             return x;
         }
 
@@ -2079,18 +2201,30 @@ public class MainActivity extends Activity {
         private double expression() {
             double x = term();
             for (;;) {
-                if (eat('+')) x += term();
-                else if (eat('-')) x -= term();
+                if (eat('+')) { double y = term(); x += relativePercent ? x * y : y; }
+                else if (eat('-')) { double y = term(); x -= relativePercent ? x * y : y; }
                 else return x;
             }
         }
 
+        private boolean relativePercent;
+
         private double term() {
+            int start = pos;
             double x = factor();
+            boolean compound = false;
             for (;;) {
-                if (eat('*')) x *= factor();
-                else if (eat('/')) x /= factor();
-                else return x;
+                if (eat('*')) { x *= factor(); compound = true; }
+                else if (eat('/')) {
+                    double divisor = factor();
+                    if (divisor == 0) throw new ArithmeticException("division by zero");
+                    x /= divisor;
+                    compound = true;
+                }
+                else {
+                    relativePercent = !compound && s.substring(start, pos).matches("[+-]?[0-9.]+%");
+                    return x;
+                }
             }
         }
 
@@ -2100,11 +2234,19 @@ public class MainActivity extends Activity {
 
             double x;
             int start = pos;
-            if (eat('(')) {
+            if (eat('√')) {
+                x = root(2, rootArgument());
+            } else if (eat('(')) {
                 x = expression();
                 if (!eat(')')) throw new RuntimeException("missing )");
             } else if ((ch >= '0' && ch <= '9') || ch == '.') {
                 while ((ch >= '0' && ch <= '9') || ch == '.') next();
+                if (ch == 'E' || (ch == 'e' && pos + 1 < s.length()
+                        && (Character.isDigit(s.charAt(pos + 1)) || s.charAt(pos + 1) == '+' || s.charAt(pos + 1) == '-'))) {
+                    next();
+                    if (ch == '+' || ch == '-') next();
+                    while (ch >= '0' && ch <= '9') next();
+                }
                 x = Double.parseDouble(s.substring(start, pos));
             } else if (Character.isLetter(ch)) {
                 while (Character.isLetter(ch)) next();
@@ -2112,12 +2254,14 @@ public class MainActivity extends Activity {
                 if ("pi".equals(name)) x = Math.PI;
                 else if ("e".equals(name)) x = Math.E;
                 else {
-                    x = factor();
+                    x = rootArgument();
                     switch (name) {
                         case "sqrt": x = Math.sqrt(x); break;
                         case "sin": x = Math.sin(Math.toRadians(x)); break;
                         case "cos": x = Math.cos(Math.toRadians(x)); break;
-                        case "tan": x = Math.tan(Math.toRadians(x)); break;
+                        case "tan":
+                            if (Math.abs(Math.IEEEremainder(x, 180)) == 90) throw new ArithmeticException("undefined tangent");
+                            x = Math.tan(Math.toRadians(x)); break;
                         case "ln": x = Math.log(x); break;
                         case "lg":
                         case "log": x = Math.log10(x); break;
@@ -2129,14 +2273,28 @@ public class MainActivity extends Activity {
             }
 
             if (eat('%')) x = x / 100.0;
+            if (eat('√')) x = root(x, rootArgument());
             if (eat('^')) x = Math.pow(x, factor());
             return x;
         }
+
+        private double rootArgument() {
+            if (!eat('(')) return factor();
+            double value = expression();
+            if (!eat(')')) throw new RuntimeException("missing )");
+            return value;
+        }
+
+        private double root(double degree, double value) {
+            if (degree == 0 || Double.isNaN(degree) || Double.isInfinite(degree))
+                throw new ArithmeticException("invalid root degree");
+            if (value == 0 && degree < 0) throw new ArithmeticException("division by zero");
+            if (value < 0) {
+                if (degree != Math.rint(degree) || Math.abs(degree % 2) != 1)
+                    throw new ArithmeticException("non-real root");
+                return -Math.pow(-value, 1.0 / degree);
+            }
+            return Math.pow(value, 1.0 / degree);
+        }
     }
 }
-
-
-
-
-
-

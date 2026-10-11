@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
@@ -11,6 +13,11 @@
         android:roundIcon="@mipmap/fengsuan_app_icon"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <provider
+            android:name=".UpdateProvider"
+            android:authorities="com.fengluanchui.fengsuan.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <activity
             android:name=".MainActivity"
             android:windowSoftInputMode="stateAlwaysHidden|adjustPan" />

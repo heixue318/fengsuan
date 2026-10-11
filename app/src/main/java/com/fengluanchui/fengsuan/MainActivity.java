@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private final List<String> redoStack = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
     private SharedPreferences prefs;
+    private AppUpdater updater;
     private final DecimalFormat df = new DecimalFormat("0.############", java.text.DecimalFormatSymbols.getInstance(Locale.US));
 
     @Override
@@ -130,6 +131,13 @@ public class MainActivity extends Activity {
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
         showCalculator();
+        updater = new AppUpdater(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (updater != null) updater.resume();
     }
 
     @Override
@@ -146,6 +154,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (updater != null) updater.close();
         if (tts != null) {
             tts.stop();
             tts.shutdown();
@@ -1046,7 +1055,7 @@ public class MainActivity extends Activity {
     }
 
     private void showCommonDialog() {
-        String[] items = {"工具箱", "历史记录", "保存草稿", "帮助", "关于风算"};
+        String[] items = {"工具箱", "历史记录", "保存草稿", "帮助", "关于风算", "检查更新"};
         new AlertDialog.Builder(this)
                 .setTitle("常用")
                 .setItems(items, (dialog, which) -> {
@@ -1055,6 +1064,7 @@ public class MainActivity extends Activity {
                     if (which == 2) saveCurrentText();
                     if (which == 3) showHelpDialog();
                     if (which == 4) showAboutDialog();
+                    if (which == 5) updater.check();
                 })
                 .show();
     }
@@ -1173,7 +1183,8 @@ public class MainActivity extends Activity {
     private void showAboutDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("风算")
-                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.20")
+                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.21")
+                .setNeutralButton("检查更新", (dialog, which) -> updater.check())
                 .setPositiveButton("知道了", null)
                 .show();
     }

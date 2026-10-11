@@ -10,7 +10,7 @@
 
 ## 当前版本
 
-- 版本：1.0.20（versionCode 21）
+- 版本：1.0.21（versionCode 22）
 - 包名：com.fengluanchui.fengsuan
 - 最低系统：Android 6.0
 - 目标系统：Android 15
@@ -64,14 +64,15 @@
 
 ## 安装包
 
-- 本地正式签名包：`dist/FengSuan-v1.0.20-release-signed.apk`
+- 本地正式签名包：`dist/FengSuan-v1.0.21-release-signed.apk`
+- 常用及关于页支持手动检查 GitHub 更新、APP 内下载及调用系统覆盖安装；蒲公英通道尚未接入。
 - 已发布安装包见 [GitHub Releases](https://github.com/heixue318/fengsuan/releases)；源码同步不等于发布新的 APK。
 
 ## 发布说明
 
 正式版沿用 fengsuan 签名。密钥、密码和本地构建产物不进入 Git 仓库。
 
-更新说明：[1.0.18](RELEASE-1.0.18.md)、[1.0.19](RELEASE-1.0.19.md)、[1.0.20](RELEASE-1.0.20.md)。
+更新说明：[1.0.18](RELEASE-1.0.18.md)、[1.0.19](RELEASE-1.0.19.md)、[1.0.20](RELEASE-1.0.20.md)、[1.0.21](RELEASE-1.0.21.md)。
 
 ## 计算回归检查
 
@@ -81,4 +82,4 @@
 powershell -ExecutionPolicy Bypass -File tests/run.ps1
 ```
 
-测试提取生产代码中的解析器，覆盖 68 项用例。此检查不替代手机上的界面、音频和分享功能验收。
+测试覆盖 68 项计算解析器用例及 12 项版本比较用例。此检查不替代手机上的界面、音频、分享及覆盖安装验收。

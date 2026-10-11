@@ -13,3 +13,7 @@ $parser = $parser.Substring(0, $parser.LastIndexOf('}')).Replace('private static
 if ($LASTEXITCODE -ne 0) { throw 'Regression compilation failed' }
 & java -cp $output CalculatorRegression
 if ($LASTEXITCODE -ne 0) { throw 'Calculator regression failed' }
+& javac -encoding UTF-8 -d $output (Join-Path $project 'app/src/main/java/com/fengluanchui/fengsuan/UpdateVersion.java') (Join-Path $PSScriptRoot 'UpdateVersionTest.java')
+if ($LASTEXITCODE -ne 0) { throw 'Update version compilation failed' }
+& java -cp $output com.fengluanchui.fengsuan.UpdateVersionTest
+if ($LASTEXITCODE -ne 0) { throw 'Update version tests failed' }

@@ -1183,7 +1183,7 @@ public class MainActivity extends Activity {
     private void showAboutDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("风算")
-                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.21")
+                .setMessage("一款懂你的计算管家\n\n设计与制作：风乱吹\n版本：1.0.22")
                 .setNeutralButton("检查更新", (dialog, which) -> updater.check())
                 .setPositiveButton("知道了", null)
                 .show();
@@ -1615,25 +1615,24 @@ public class MainActivity extends Activity {
     }
 
     private int keyFill(String key) {
-        if ("AC".equals(key)) return Color.rgb(194, 37, 49);
-        if ("⌫".equals(key)) return Color.rgb(173, 100, 30);
-        if ("=".equals(key)) return Color.rgb(255, 139, 19);
-        if (isLightKey(key)) return Color.rgb(220, 223, 226);
+        if ("AC".equals(key)) return Color.rgb(210, 51, 55);
+        if ("⌫".equals(key)) return Color.rgb(255, 149, 57);
+        if (isLightKey(key)) return Color.rgb(240, 240, 240);
         if ("帮助".equals(key) || "函数".equals(key) || "常量".equals(key) ||
                 "常用".equals(key) || isSoundKey(key)) {
-            return Color.rgb(49, 53, 57);
+            return Color.rgb(85, 85, 85);
         }
-        return Color.rgb(49, 53, 57);
+        return Color.rgb(128, 128, 128);
     }
 
     private int keyTextColor(String key) {
-        if ("=".equals(key)) return Color.WHITE;
+        if ("=".equals(key)) return Color.rgb(190, 28, 28);
         if ("AC".equals(key) || "⌫".equals(key)) return Color.WHITE;
         return isLightKey(key) ? Color.rgb(42, 43, 44) : Color.WHITE;
     }
 
     private boolean isLightKey(String key) {
-        return key.matches("[0-9.]") || "文".equals(key);
+        return key.matches("[0-9.]") || "=".equals(key) || "文".equals(key);
     }
 
     private int adjustColor(int color, int amount) {
@@ -1653,55 +1652,11 @@ public class MainActivity extends Activity {
 
     private void drawKeyCap(Canvas canvas, RectF bounds, int baseColor, float radius, boolean pressed) {
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        boolean light = isLightColor(baseColor);
-        boolean orange = Color.red(baseColor) > 235 && Color.green(baseColor) > 95 && Color.green(baseColor) < 180;
-        boolean red = Color.red(baseColor) > 180 && Color.green(baseColor) < 80;
-        float lift = pressed ? dp(1.3f) : 0f;
-        RectF slot = new RectF(bounds);
-        slot.inset(dp(0.2f), dp(0.2f));
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(33, 35, 35));
-        canvas.drawRoundRect(slot, radius + dp(1), radius + dp(1), p);
-
-        RectF shadow = new RectF(bounds.left + dp(1.4f), bounds.top + dp(3.8f),
-                bounds.right - dp(1.4f), bounds.bottom - dp(0.2f));
-        p.setColor(Color.argb(112, 0, 0, 0));
-        canvas.drawRoundRect(shadow, radius, radius, p);
-
-        RectF key = new RectF(bounds.left + dp(0.9f), bounds.top + dp(0.4f) + lift,
-                bounds.right - dp(0.9f), bounds.bottom - dp(2.7f) + lift);
-        int top = adjustColor(baseColor, light ? 16 : 10);
-        int mid = baseColor;
-        int bottom = adjustColor(baseColor, -9);
-        if (orange) {
-            top = Color.rgb(255, 159, 37);
-            mid = baseColor;
-            bottom = Color.rgb(245, 119, 12);
-        } else if (red) {
-            top = adjustColor(baseColor, 12);
-            mid = baseColor;
-            bottom = adjustColor(baseColor, -12);
-        }
-        p.setShader(new LinearGradient(0, key.top, 0, key.bottom,
-                new int[]{top, mid, bottom},
-                new float[]{0f, 0.56f, 1f},
-                Shader.TileMode.CLAMP));
+        RectF key = new RectF(bounds);
+        key.inset(dp(0.5f), dp(0.5f));
+        radius = Math.min(radius, dp(4));
+        p.setColor(pressed ? adjustColor(baseColor, -22) : baseColor);
         canvas.drawRoundRect(key, radius, radius, p);
-        p.setShader(null);
-
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(dp(0.65f));
-        p.setColor(adjustColor(baseColor, light ? 22 : 25));
-        canvas.drawRoundRect(key, radius, radius, p);
-
-        p.setStrokeWidth(dp(0.6f));
-        p.setColor(light ? Color.argb(130, 255, 255, 255) : Color.argb(48, 255, 255, 255));
-        canvas.drawLine(key.left + radius, key.top + dp(1.5f),
-                key.right - radius, key.top + dp(1.5f), p);
-
-        p.setColor(Color.argb(light ? 58 : 92, 0, 0, 0));
-        canvas.drawLine(key.left + radius, key.bottom - dp(1.1f),
-                key.right - radius, key.bottom - dp(1.1f), p);
     }
     private boolean isLightColor(int color) {
         return Color.red(color) + Color.green(color) + Color.blue(color) > 560;

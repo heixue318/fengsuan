@@ -10,7 +10,7 @@
 
 ## 当前版本
 
-- 版本：1.0.21（versionCode 22）
+- 版本：1.0.22（versionCode 23）
 - 包名：com.fengluanchui.fengsuan
 - 最低系统：Android 6.0
 - 目标系统：Android 15
@@ -52,7 +52,7 @@
 - 左侧 `<` 按钮可展开分享入口
 - 分享入口使用三点折线图标，弹出“请编辑待分享文本”窗口
 - 分享文本可编辑，并可调用系统分享到微信、QQ 等应用
-- 六种键盘布局统一使用石墨黑面板和银灰微立体键帽
+- 六种键盘布局统一使用灰、白、红、橙的简约扁平键帽
 - 横屏和竖屏支持
 - 人民币大写金额转换
 - 离线汇率估算
@@ -64,7 +64,7 @@
 
 ## 安装包
 
-- 本地正式签名包：`dist/FengSuan-v1.0.21-release-signed.apk`
+- 本地正式签名包：`dist/FengSuan-v1.0.22-release-signed.apk`
 - 常用及关于页支持手动检查 GitHub 更新、APP 内下载及调用系统覆盖安装；蒲公英通道尚未接入。
 - 已发布安装包见 [GitHub Releases](https://github.com/heixue318/fengsuan/releases)；源码同步不等于发布新的 APK。
 
@@ -72,7 +72,7 @@
 
 正式版沿用 fengsuan 签名。密钥、密码和本地构建产物不进入 Git 仓库。
 
-更新说明：[1.0.18](RELEASE-1.0.18.md)、[1.0.19](RELEASE-1.0.19.md)、[1.0.20](RELEASE-1.0.20.md)、[1.0.21](RELEASE-1.0.21.md)。
+更新说明：[1.0.18](RELEASE-1.0.18.md)、[1.0.19](RELEASE-1.0.19.md)、[1.0.20](RELEASE-1.0.20.md)、[1.0.21](RELEASE-1.0.21.md)、[1.0.22](RELEASE-1.0.22.md)。
 
 ## 计算回归检查
 
